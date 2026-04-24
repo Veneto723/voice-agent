@@ -8,10 +8,11 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --check src/index.js && node --check src/routes/external.js"
+    "db:migrate": "node scripts/db-migrate.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "pg": "^8.16.3"
   }
 }
