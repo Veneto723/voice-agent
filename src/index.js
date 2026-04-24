@@ -1,11 +1,10 @@
 import express from "express";
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv';
 import apiRoutes from './routes/api.js';
 import http from 'http';
 
 // Load environment variables from .env file
-dotenv.config();
-
+// dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;

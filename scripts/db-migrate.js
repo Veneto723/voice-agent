@@ -1,7 +1,10 @@
-import "dotenv/config";
+import dotenv from 'dotenv';
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { query } from "../src/db.js";
+
+// Load environment variables from .env file
+dotenv.config();
 
 async function main() {
   const migrationPath = resolve("migrations/db.sql");

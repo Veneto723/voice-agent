@@ -1,0 +1,43 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+  deploy-render:
+    name: Deploy to Render
+    needs: test
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL not set; skipping."
+            echo "Tip: keep Render auto-deploy on, or set the deploy hook URL as a GitHub repo secret."
+            exit 0
+          fi
+          
+          echo "Triggering Render deploy..."
+          curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
+          echo "Deploy triggered successfully."
+
