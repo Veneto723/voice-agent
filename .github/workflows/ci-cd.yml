@@ -23,6 +23,7 @@ jobs:
   deploy-render:
     name: Deploy to Render
     needs: test
+    runs-on: ubuntu-latest
 
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     
@@ -36,7 +37,7 @@ jobs:
             echo "Tip: keep Render auto-deploy on, or set the deploy hook URL as a GitHub repo secret."
             exit 0
           fi
-          
+
           echo "Triggering Render deploy..."
           curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
           echo "Deploy triggered successfully."
