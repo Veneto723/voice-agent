@@ -1,7 +1,7 @@
 create table if not exists calls (
   id bigserial primary key,
   phone text not null,
-  status text not null check (status in ('collecting', 'completed', 'failed'))
+  status text not null check (status in ('collecting', 'completed', 'failed')),
   started_at timestamptz default now(),
   ended_at timestamptz,
   raw_transcript text
