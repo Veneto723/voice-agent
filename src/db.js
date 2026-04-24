@@ -12,7 +12,12 @@ export function getPool() {
     throw new Error("Missing DATABASE_URL");
   }
 
-  _pool = new Pool({ DB_URL });
+  _pool = new Pool({
+    connectionString: DB_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
 
   return _pool;
 }
