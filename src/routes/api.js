@@ -1,9 +1,10 @@
 import express from "express";
 import { sendWeComGroupText } from "../utils/wecomWebhook.js";
 import { standardResponse } from "../utils/utils.js";
-import { VoiceResponse } from 'twilio/lib/twiml/VoiceResponse';
+import twilio from "twilio";
 
 const router = express.Router();
+const VoiceResponse = twilio.twiml.VoiceResponse;
 
 router.get("/health", async(req, res) => {
   return standardResponse(res, 200, "ok");
