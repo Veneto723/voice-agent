@@ -7,13 +7,13 @@ let _pool;
 export function getPool() {
   if (_pool) return _pool;
 
-  const DB_URL = process.env.DB_URL;
-  if (!DB_URL) {
+  const DATABASE_URL = process.env.DATABASE_URL;
+  if (!DATABASE_URL) {
     throw new Error("Missing DATABASE_URL");
   }
 
   _pool = new Pool({
-    connectionString: DB_URL,
+    connectionString: DATABASE_URL,
     ssl: {
       rejectUnauthorized: false
     }

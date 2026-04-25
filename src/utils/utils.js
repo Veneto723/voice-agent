@@ -1,4 +1,5 @@
 // src/utils/utils.js
+import axios from "axios";
 
 export const standardResponse = (res, code, msg, data = {}) => {
     res.status(code).json({
@@ -25,3 +26,21 @@ export const formatTime = (date) => {
       hour12: false,
     }).format(date);
 };
+
+/**
+ * 调用微信机器人API
+ * @param {string} token - 令牌
+ * @param {string} url - 请求URL
+ * @param {Object} data - 请求数据
+ * @returns {Promise<Object>} 响应数据
+ */
+export const callWechatBotApi = async (url, token, data) => {
+	try {
+		const resp = await axios.post(url, data, { headers: { AUTHORIZATION: token, "Content-Type": "application/json" }, timeout: 0 });
+		console.log('Successfully sent API request with resp:', resp.data);
+		return resp;
+	} catch (err) {
+		console.error(`Failed to send API request to ${url}:`, err.message);
+		throw err;
+	}
+}

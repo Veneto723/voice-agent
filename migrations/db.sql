@@ -1,23 +1,32 @@
-create table if not exists calls (
-  id bigserial primary key,
-  phone text not null,
-  status text not null check (status in ('collecting', 'completed', 'failed')),
+-- Enum Types
+create type session_status as enum ('collecting', 'completed', 'failed');
+
+-- Sessions Table
+create table if not exists sessions (
+  id text primary key,
+  wxid text not null,
+  plate text null,
+  company text null,
+  reason text null,
+  status session_status not null,
   started_at timestamptz default now(),
-  ended_at timestamptz,
-  raw_transcript text
+  ended_at timestamptz
 );
 
-create index if not exists calls_phone_idx on calls (phone);
+CREATE INDEX IF NOT EXISTS sessions_wxid_idx
+ON sessions (wxid);
+CREATE INDEX IF NOT EXISTS sessions_wxid_status_idx
+ON sessions (wxid, status);
+CREATE INDEX IF NOT EXISTS sessions_collecting_idx
+ON sessions (wxid)
+WHERE status = 'collecting';
 
-create table if not exists visits (
+-- Visitors Table
+create table if not exists visitors (
   id bigserial primary key,
-  call_id bigint not null references calls(id) on delete cascade,
+  wxid text not null,
   plate text not null,
-  company text not null,
-  phone text not null,
-  reason text not null,
-  entry_time timestamptz not null default now()
-);
+  created_at timestamptz not null default now(),
 
-create index if not exists visits_entry_time_idx on visits (entry_time desc);
-create index if not exists visits_phone_idx on visits (phone);
+  unique(wxid, plate)
+);

@@ -9,12 +9,17 @@
   "scripts": {
     "start": "node src/index.js",
     "db:migrate": "node scripts/db-migrate.js",
+    "bot:start": "node src/bot/botService.js",
     "test": "node --check src/index.js && node --check src/routes/api.js && node --check src/utils/wecomWebhook.js && node --check src/utils/guardMessage.js && node --check src/db.js && node --check scripts/db-migrate.js"
   },
   "dependencies": {
+    "axios": "^1.15.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^5.10.1",
     "pg": "^8.16.3",
-    "twilio": "^6.0.0"
+    "tencentcloud-sdk-nodejs": "^4.1.221",
+    "uuid": "^14.0.0",
+    "ws": "^8.20.0"
   }
 }

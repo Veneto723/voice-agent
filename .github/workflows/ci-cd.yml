@@ -34,11 +34,10 @@ jobs:
         run: |
           if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
             echo "RENDER_DEPLOY_HOOK_URL not set; skipping."
-            echo "Tip: keep Render auto-deploy on, or set the deploy hook URL as a GitHub repo secret."
             exit 0
           fi
 
-          echo "Triggering Render deploy..."
-          curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
-          echo "Deploy triggered successfully."
+          # echo "Triggering Render deploy..."
+          # curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
+          # echo "Deploy triggered successfully."
 
