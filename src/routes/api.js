@@ -1,6 +1,7 @@
 import express from "express";
 import { sendWeComGroupText } from "../utils/wecomWebhook.js";
 import { standardResponse } from "../utils/utils.js";
+import { VoiceResponse } from 'twilio/lib/twiml/VoiceResponse';
 
 const router = express.Router();
 
@@ -8,6 +9,14 @@ router.get("/health", async(req, res) => {
   return standardResponse(res, 200, "ok");
 });
 
+router.post("/twilio/voice", async (req, res) => {
+  const twiml = new VoiceResponse();
+
+  twiml.say('你好，欢迎使用Voice Agent智能语音AI访客登记系统。');
+
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
 
 router.post("/notify", async (req, res) => {
   const { content } = req.body;
