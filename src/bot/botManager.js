@@ -103,6 +103,8 @@ class BotManager {
     if (Data.MsgType === ACCEPTANCE_MSG_TYPE) {
       await this.messageService.handleNewFriend(Data, bot)
 
+      // create a new session for the new visitor
+      await this.messageService.createSession(fromUser);
       const replyContent = "您好，我是园区访客登记助手。请直接发送：车牌号、拜访公司、来访事由（可发语音）。";
       await this.messageService.sendReply(bot, fromUser, replyContent);
       return;
@@ -131,13 +133,32 @@ class BotManager {
 
   /**
    * Handle a plate scan event
-   * @param {string} plate - the plate number to scan
+   * @param {Object} payload - the payload from the API
    */
-  async handleScanPlate(plate) {
-    // TODO: implement this function to handle the plate scan event
-    // we need to check if the plate is in the database
-    // if it is, we need to send a message to the visitor
-    // if it is not, we need to send a message to the visitor
+  async handleScanPlate(payload) {
+    const bot = this.bot;
+    if (!bot) {
+      console.warn("[scanPlate] bot not connected.");
+      return;
+    }
+
+    const { plate, wxid, session } = payload ?? {};
+
+    if (!plate || !wxid) {
+      console.warn("[scanPlate] missing plate or wxid info", payload);
+      return;
+    }
+
+    // create a new session for the new visitor
+    await this.messageService.createSession(fromUser);
+    let content = `欢迎回来！已识别车辆（${plate}）。\n`;
+    if (!session) {
+      content += "您好，我是园区访客登记助手。请直接发送：拜访公司、来访事由（可发语音）。";
+    } else {
+      content += `请问您还是去${session.company}${session.reason}吗？如果您需要修改，请直接发送：拜访公司、来访事由（可发语音）。`;
+    }
+
+    await this.messageService.sendReply(bot, wxid, content);
   }
 }
 

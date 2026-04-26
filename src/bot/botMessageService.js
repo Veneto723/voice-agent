@@ -1,11 +1,14 @@
 // src/bot/botMessageService.js
-import {query} from "../db.js";
-import {v4 as uuidv4} from "uuid";
-import {callWechatBotApi} from "../utils/utils.js";
+import { query, getPool } from "../db.js";
+import { v4 as uuidv4 } from "uuid";
+import { encode, isWav } from "silk-wasm";
+import { callWechatBotApi } from "../utils/utils.js";
+import { uploadSilkBuffer, signUrl } from "../utils/ossHandler.js";
 
 export class BotMessageService {
-    constructor(asrClient) {
+    constructor(asrClient, ttsClient) {
         this.asrClient = asrClient;
+        this.ttsClient = ttsClient;
     }
 
 
@@ -47,7 +50,7 @@ export class BotMessageService {
 
         try {
             // Step 1: Get the file URL from
-            const resp = await callWechatBotApi(process.env.WECHAT_BOT_DOWNLOAD_VOICE_URL, bot.token, {msgId, xml});
+            const resp = await callWechatBotApi(process.env.WECHAT_BOT_DOWNLOAD_VOICE_URL, bot.token, { msgId, xml });
 
             const fileUrl = resp.data?.data?.fileUrl;
 
@@ -106,6 +109,60 @@ export class BotMessageService {
         bot.visitors.add(fromUser);
 
         console.log(`[BOT ${bot.wxid}] New friend accepted: ${fromUser}`);
+
+        try {
+            const resp = await callWechatBotApi(process.env.WECHAT_BOT_SEARCH_FRIEND_URL, bot.token, { contactsInfo: fromUser });
+            const data = resp?.data;
+            if (data?.ret === 0) {
+                const v3 = data?.data?.v3;
+                const v4 = data?.data?.v4;
+
+                await callWechatBotApi(process.env.WECHAT_BOT_ADD_FRIEND_URL, bot.token, { v3, v4, scene: 3, content: '', option: 2 });
+            }
+        } catch (err) {
+            console.error(`[BOT ${bot.wxid}] Search friend error:`, err);
+        }
+    }
+
+    /**
+     * Tencent TTS (base64 WAV) → SILK → Aliyun OSS; returns a time-limited signed URL and duration.
+     * @param {string} text
+     * @returns {Promise<{ signedUrl: string, durationMs: number, objectKey: string }|null>}
+     */
+    async generateTTS(text) {
+        const trimmed = typeof text === "string" ? text.trim() : "";
+        if (!trimmed || !this.ttsClient) return null;
+
+        const sessionId = uuidv4();
+        const voiceType = process.env.TENCENT_TTS_VOICE_TYPE;
+        const objectKey = `voice/tts/${sessionId}.silk`;
+
+        const params = {
+            Text: trimmed,
+            SessionId: sessionId,
+            VoiceType: voiceType,
+            Codec: "wav",
+        };
+
+        const ttsResp = await this.ttsClient.TextToVoice(params);
+        const audioB64 = ttsResp?.Audio ?? "";
+        if (!audioB64) return null;
+
+        const wavBuf = Buffer.from(audioB64, "base64");
+        if (!isWav(wavBuf)) {
+            throw new Error("[TTS] response is not WAV");
+        }
+
+        const { data, duration } = await encode(wavBuf, 0);
+        const silk = Buffer.from(data);
+
+        await uploadSilkBuffer(objectKey, silk);
+        const signedUrl = signUrl(objectKey);
+        if (!signedUrl) {
+            throw new Error("[TTS] failed to sign OSS URL");
+        }
+
+        return { signedUrl, duration };
     }
 
     /**
@@ -117,7 +174,7 @@ export class BotMessageService {
     async sendReply(bot, toWxid, content) {
         if (!bot || !toWxid || !content.trim()) return;
 
-        await callWechatBotApi(process.env.WECHAT_BOT_SEND_TEXT_URL, bot.token, {toWxid, content});
+        await callWechatBotApi(process.env.WECHAT_BOT_SEND_TEXT_URL, bot.token, { toWxid, content });
     }
 
     /**
@@ -145,5 +202,65 @@ export class BotMessageService {
         );
 
         return result.rows?.[0];
+    }
+
+    /**
+     * Mark the collecting session completed with plate, company, and reason.
+     * Runs in a single transaction.
+     *
+     * @param {string} wxid
+     * @param {string} plate
+     * @param {string} company
+     * @param {string} reason
+     * @param {Object} session
+     */
+    async completeSession(wxid, plate, company, reason, session) {
+        const plateNorm = plate.trim();
+        const pool = getPool();
+        const client = await pool.connect();
+
+        try {
+            await client.query("BEGIN");
+
+            const lock = await client.query(
+                `SELECT id FROM sessions
+                     WHERE id = $1 AND wxid = $2 AND status = 'collecting'
+                     FOR UPDATE`,
+                [session.id, wxid]
+            );
+
+            if (!lock.rows?.[0]) {
+                await client.query("ROLLBACK");
+                console.warn(`Session does not exist for wxid=${wxid}`);
+                return null;
+            }
+
+            await client.query(
+                `UPDATE sessions
+                 SET plate = $1,
+                     company = $2,
+                     reason = $3,
+                     status = 'completed',
+                     ended_at = now()
+                 WHERE id = $4 AND wxid = $5`,
+                [plateNorm, company, reason, session.id, wxid]
+            );
+
+            await client.query(
+                `INSERT INTO visitors (wxid, plate) VALUES ($1, $2)
+                 ON CONFLICT (wxid) DO UPDATE SET plate = EXCLUDED.plate`,
+                [wxid, plateNorm]
+            );
+
+            await client.query("COMMIT");
+        } catch (e) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (_) { }
+            console.error("[completeSession] error:", e);
+            throw e;
+        } finally {
+            client.release();
+        }
     }
 }

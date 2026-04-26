@@ -3,6 +3,7 @@ import express from "express";
 import {sendWeComGroupText} from "../utils/wecomWebhook.js";
 import {standardResponse} from "../utils/utils.js";
 import {redis} from "../utils/redisClient.js";
+import { query } from "../db.js";
 
 const router = express.Router();
 
@@ -18,14 +19,36 @@ router.post("/scan-plate", async (req, res) => {
   }
 
   try {
+    const normalized = plate.trim();
+
+    const result = await query(
+      `SELECT wxid FROM visitors WHERE UPPER(plate) = UPPER($1::text) LIMIT 1`,
+      [normalized]
+    );
+
+    const wxid = result.rows?.[0]?.wxid ?? null;
+
+    if (!wxid) {
+      return standardResponse(res, 404, "plate not registered");
+    }
+
+
+    const lastSession = await query(
+      `SELECT * FROM sessions WHERE wxid = $1 ORDER BY started_at DESC LIMIT 1`,
+      [wxid]
+    )
+    const session = lastSession.rows?.[0] ?? null;
+
     await redis.publish(
       'bot:control',
       JSON.stringify({
         action: "scanPlate",
-        plate: plate.trim()
+        plate: normalized,
+        wxid: wxid,
+        session: session,
       })
     );
-    return standardResponse(res, 200, "ok", {plate: plate.trim()});
+    return standardResponse(res, 200, "ok");
 
   } catch (e) {
     return standardResponse(res, 500, e.message || "publish failed", {});

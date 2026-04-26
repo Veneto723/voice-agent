@@ -11,19 +11,31 @@ dotenv.config();
 console.log("WeChat Bot Service starting...");
 
 const AsrClient = tencentcloud.asr.v20190614.Client;
+const TtsClient = tencentcloud.tts.v20190823.Client;
 
 const asrClient = new AsrClient({
   credential: {
     secretId: process.env.TENCENT_SECRET_ID,
     secretKey: process.env.TENCENT_SECRET_KEY
   },
-  region: "ap-guangzhou",
+  region: "ap-shanghai",
   profile: {
     httpProfile: { endpoint: "asr.tencentcloudapi.com" }
   }
 });
 
-const messageService = new BotMessageService(asrClient);
+const ttsClient = new TtsClient({
+  credential: {
+    secretId: process.env.TENCENT_SECRET_ID,
+    secretKey: process.env.TENCENT_SECRET_KEY
+  },
+  region: "ap-shanghai",
+  profile: {
+    httpProfile: { endpoint: "tts.tencentcloudapi.com" }
+  }
+})
+
+const messageService = new BotMessageService(asrClient, ttsClient);
 const botManager = new BotManager(asrClient, messageService);
 
 // subscribe redis
@@ -38,7 +50,7 @@ sub.on("message", async (channel, message) => {
 
       switch (data.action) {
         case "scanPlate":
-          await botManager.handleScanPlate(data.plate);
+          await botManager.handleScanPlate(data);
           break;
       }
     } catch (err) {

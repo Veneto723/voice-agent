@@ -28,5 +28,5 @@ create table if not exists visitors (
   plate text not null,
   created_at timestamptz not null default now(),
 
-  unique(wxid, plate)
+  unique(wxid)
 );
