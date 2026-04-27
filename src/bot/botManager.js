@@ -105,6 +105,8 @@ class BotManager {
 
       // create a new session for the new visitor
       await this.messageService.createSession(fromUser);
+      const replyContent = "您好，我是园区访客登记助手。请直接发送：手机号、车牌号、拜访公司、来访事由（可发语音）。";
+      await this.messageService.sendReply(bot, fromUser, replyContent);
       return;
     }
 
@@ -124,11 +126,10 @@ class BotManager {
 
     // Step 2: generate AI reply
     const session = await this.messageService.getSession(fromUser);
-    console.log(`current session: ${session}`)
-    const reply = await this.messageService.getAIReply(fromUser, content, session.id);
+    const reply = await this.messageService.getAIReply(bot, fromUser, content, session);
 
     // Step 3: send back reply
-    await this.messageService.sendVoiceReply(bot, fromUser, reply);
+//    await this.messageService.sendVoiceReply(bot, fromUser, reply);
     await this.messageService.sendReply(bot, fromUser, reply);
   }
 
@@ -143,23 +144,39 @@ class BotManager {
       return;
     }
 
-    const { plate, wxid, session } = payload ?? {};
+    const { plate, wxid, session: prevSession } = payload ?? {};
 
     if (!plate || !wxid) {
       console.warn("[scanPlate] missing plate or wxid info", payload);
       return;
     }
 
-    // create a new session for the new visitor
-    await this.messageService.createSession(fromUser);
-    let content = `欢迎回来！已识别车辆（${plate}）。\n`;
-    if (!session) {
-      content += "您好，我是园区访客登记助手。请直接发送：拜访公司、来访事由（可发语音）。";
+    const newSession = await this.messageService.createSession(wxid);
+
+    const p = prevSession && typeof prevSession === "object" ? prevSession : null;
+    const company = p?.company != null ? String(p.company).trim() : "";
+    const reason = p?.reason != null ? String(p.reason).trim() : "";
+    const phone = p?.phone != null ? String(p.phone).trim() : "";
+    const lastPlate = p?.plate != null ? String(p.plate).trim() : "";
+    const hasHistory = Boolean(company || reason || phone || lastPlate);
+
+    let gateMessage;
+    if (!hasHistory) {
+      gateMessage =
+        `【系统消息·闸机识别】已识别当前入场车辆车牌：${String(plate).trim()}。` +
+        "该访客暂无可复用的历史登记。请向用户简要说明，并引导其完成拜访公司、来访事由、手机号等登记；用户可发语音。";
     } else {
-      content += `请问您还是去${session.company}${session.reason}吗？如果您需要修改，请直接发送：拜访公司、来访事由（可发语音）。`;
+      gateMessage =
+        `【系统消息·闸机识别】已识别车牌：${String(plate).trim()}。` +
+        `该访客此前在系统中留存的登记信息为：拜访单位「${company || "（未填）"}」，` +
+        `来访事由「${reason || "（未填）"}」，手机「${phone || "（未填）"}」，车牌「${
+          lastPlate || String(plate).trim()
+        }」。` +
+        "请用自然、友好的话向用户确认本次是否仍按上述信息办理；若需修改，请据对话继续登记。";
     }
 
-    await this.messageService.sendReply(bot, wxid, content);
+    const reply = await this.messageService.getAIReply(bot, wxid, gateMessage, newSession);
+    await this.messageService.sendReply(bot, wxid, reply);
   }
 
   async handleGenerateTts(payload) {

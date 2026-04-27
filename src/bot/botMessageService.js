@@ -4,7 +4,29 @@ import { v4 as uuidv4 } from "uuid";
 import { encode, isWav } from "silk-wasm";
 import { callWechatBotApi } from "../utils/utils.js";
 import { uploadSilkBuffer, signUrl } from "../utils/ossHandler.js";
+import { buildGuardMessage } from "../utils/utils.js";
+import { sendWeComGroupText } from "../utils/wecomWebhook.js";
 import axios from "axios";
+
+/**
+ * Parse agent JSON from model output (raw JSON or fenced ```json ... ```).
+ * @param {string} content
+ * @returns {object|null}
+ */
+export function parseAgentJson(content) {
+    if (!content || typeof content !== "string") return null;
+    let s = content.trim();
+    const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) s = fence[1].trim();
+    const start = s.indexOf("{");
+    const end = s.lastIndexOf("}");
+    if (start === -1 || end <= start) return null;
+    try {
+        return JSON.parse(s.slice(start, end + 1));
+    } catch {
+        return null;
+    }
+}
 
 export class BotMessageService {
     constructor(asrClient, ttsClient) {
@@ -22,8 +44,9 @@ export class BotMessageService {
         const fromUser = Data.FromUserName?.string;
         const toUser = Data.ToUserName?.string;
         const content = Data.Content?.string;
+        const pushContent = Data.PushContent;
 
-        if (!fromUser || !toUser || !content || !bot) return null;
+        if (!fromUser || !toUser || !content || !bot || !pushContent) return null;
 
         // ignore group message
         if (fromUser.endsWith("@chatroom")) return null;
@@ -132,55 +155,99 @@ export class BotMessageService {
         console.log(`[BOT ${bot.wxid}] New friend accepted: ${fromUser}`);
     }
 
-    async getAIReply(visitorId, userMessage, sessionId) {
-        try {
-          const payload = {
-            session_id: sessionId,
-            bot_app_key: process.env.AGENT_APP_KEY,
-            visitor_biz_id: visitorId,
-            content: userMessage,
-            stream: "disable",
-            search_network: "disable",
-            workflow_status: "disable",
-            tcadp_user_id: ""
-          };
-
-          const response = await axios.post(
-            "https://wss.lke.cloud.tencent.com/v1/qbot/chat/sse",
-            payload,
-            {
-              headers: { "Content-Type": "application/json" }
-            }
-          );
-          const lines = response.data.split(/\r?\n/);
-          let finalReply = "";
-
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line.startsWith("data:")) continue;
-
-            const rawJson = line.replace(/^data:/, "").trim();
-            try {
-              const json = JSON.parse(rawJson);
-
-              if (json.type === "reply") {
-                const payload = json.payload || {};
-                if (!payload.is_from_self && payload.is_final) {
-                  finalReply = payload.content;
-                  break; // stop after the final reply
-                }
-              }
-            } catch (err) {
-              console.error("[AI] Failed to parse JSON line:", err.message);
-            }
-          }
-
-          return finalReply;
-        } catch (err) {
-          console.error("Failed to get AI reply:", err.message);
-          return "AI生成回复失败";
+    /**
+     * LKE chat → safe JSON parse → optional completeSession when status is complete.
+     * @param {Object} bot
+     * @param {string} visitorId - wxid
+     * @param {string} userMessage
+     * @param {{ id: string, status?: string }} session - DB session row
+     * @returns {Promise<string>} reply text for WeChat (reply_to_user or raw fallback)
+     */
+    async getAIReply(bot, visitorId, userMessage, session) {
+        if (!session?.id) {
+            return "系统未找到登记会话，请稍后再试";
         }
-      }
+
+        let finalReply = "";
+        try {
+            const payload = {
+                session_id: session.id,
+                bot_app_key: process.env.AGENT_APP_KEY,
+                visitor_biz_id: visitorId,
+                content: userMessage,
+                stream: "disable",
+                search_network: "disable",
+                workflow_status: "disable",
+                tcadp_user_id: "",
+            };
+
+            const response = await axios.post(
+                "https://wss.lke.cloud.tencent.com/v1/qbot/chat/sse",
+                payload,
+                {
+                    headers: { "Content-Type": "application/json" },
+                }
+            );
+            const lines = response.data.split(/\r?\n/);
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line.startsWith("data:")) continue;
+
+                const rawJson = line.replace(/^data:/, "").trim();
+                try {
+                    const json = JSON.parse(rawJson);
+
+                    if (json.type === "reply") {
+                        const pl = json.payload || {};
+                        if (!pl.is_from_self && pl.is_final) {
+                            finalReply = pl.content ?? "";
+                            break;
+                        }
+                    }
+                } catch (err) {
+                    console.error("[AI] Failed to parse JSON line:", err.message);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to get AI reply:", err.message);
+            return "AI 生成回复失败，请稍后再试";
+        }
+
+        const parsed = JSON.parse(finalReply.trim());
+        console.log(parsed);
+        let replyText = parsed?.reply_to_user || '';
+
+        if (session.status === "collecting" &&
+            String(parsed.status || "").toLowerCase() === "complete" &&
+            parsed.data && typeof parsed.data === "object"
+        ) {
+            const d = parsed.data;
+            const plate = d.plate != null ? String(d.plate).trim() : "";
+            const company = d.company != null ? String(d.company).trim() : "";
+            const reason = d.reason != null ? String(d.reason).trim() : "";
+            const phone = d.phone != null ? String(d.phone).trim() : "";
+            if (plate && company && reason && phone) {
+                try {
+                    const done = await this.completeSession(visitorId, plate, company, reason, phone, session);
+
+                        try {
+                            const templateMsg = buildGuardMessage({ ...done, entryTime: new Date() });
+                            await sendWeComGroupText(templateMsg);
+                            await this.sendReply(bot, visitorId, templateMsg);
+                        } catch (e) {
+                            console.error("[wecom] notify guard failed:", e.message);
+                        }
+                } catch (e) {
+                    console.error("[getAIReply] completeSession failed:", e.message);
+                }
+            } else {
+                console.warn("[getAIReply] complete status but data incomplete", parsed.data);
+            }
+        }
+
+        return replyText;
+    }
 
     /**
      * TTS (base64 WAV) → SILK → OSS; returns a time-limited signed URL and duration.
@@ -271,17 +338,26 @@ export class BotMessageService {
     }
 
     /**
-     * Mark the collecting session completed with plate, company, and reason.
-     * Runs in a single transaction.
+     * Mark the collecting session completed. Runs in a single transaction.
      *
      * @param {string} wxid
      * @param {string} plate
      * @param {string} company
      * @param {string} reason
+     * @param {string} phone
      * @param {Object} session
+     * @returns {Promise<{ plate: string, company: string, reason: string, phone: string }|null>}
      */
-    async completeSession(wxid, plate, company, reason, session) {
-        const plateNorm = plate.trim();
+    async completeSession(wxid, plate, company, reason, phone, session) {
+        const plateNorm = String(plate ?? "").trim();
+        const co = String(company ?? "").trim();
+        const re = String(reason ?? "").trim();
+        const ph = String(phone ?? "").trim();
+        if (!plateNorm || !co || !re || !ph) {
+            console.warn("[completeSession] missing required field");
+            return null;
+        }
+
         const pool = getPool();
         const client = await pool.connect();
 
@@ -306,10 +382,11 @@ export class BotMessageService {
                  SET plate = $1,
                      company = $2,
                      reason = $3,
+                     phone = $4,
                      status = 'completed',
                      ended_at = now()
-                 WHERE id = $4 AND wxid = $5`,
-                [plateNorm, company, reason, session.id, wxid]
+                 WHERE id = $5 AND wxid = $6`,
+                [plateNorm, co, re, ph, session.id, wxid]
             );
 
             await client.query(
@@ -319,6 +396,7 @@ export class BotMessageService {
             );
 
             await client.query("COMMIT");
+            return { plate: plateNorm, company: co, reason: re, phone: ph };
         } catch (e) {
             try {
                 await client.query("ROLLBACK");
