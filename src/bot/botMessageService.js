@@ -320,6 +320,10 @@ export class BotMessageService {
             `SELECT * FROM sessions WHERE wxid = $1 ORDER BY started_at DESC LIMIT 1`,
             [wxid]
         );
+        const curr = result.rows?.[0];
+        if (!curr || curr.status === "completed") {
+            return await this.createSession(wxid);
+        }
         return result.rows?.[0];
     }
 
