@@ -28,7 +28,7 @@ export const formatTime = (date) => {
 };
 
 /**
- * 调用微信机器人API
+ * 调用 Wechat Bot API
  * @param {string} token - 令牌
  * @param {string} url - 请求URL
  * @param {Object} data - 请求数据
@@ -40,7 +40,7 @@ export const callWechatBotApi = async (url, token, data) => {
 		console.log('Successfully sent API request with resp:', resp.data);
 		return resp;
 	} catch (err) {
-		console.error(`Failed to send API request to ${url}:`, err.message);
+		console.error(`Failed to send API request:`, err.message);
 		throw err;
 	}
 }

@@ -52,6 +52,9 @@ sub.on("message", async (channel, message) => {
         case "scanPlate":
           await botManager.handleScanPlate(data);
           break;
+        case "generateTts":
+          await botManager.handleGenerateTts(data);
+          break;
       }
     } catch (err) {
       console.error("Redis message error:", err);

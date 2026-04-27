@@ -11,6 +11,25 @@ router.get("/health", async (req, res) => {
   return standardResponse(res, 200, "ok");
 });
 
+router.post("/test-voice", async (req, res) => {
+  const {content} = req.body;
+  if (!content || typeof content !== "string" || !content.trim()) {
+    return standardResponse(res, 400, "content (non-empty string) required");
+  }
+  try {
+    await redis.publish(
+      'bot:control',
+      JSON.stringify({
+        action: "generateTts",
+        content: content,
+      })
+    );
+    return standardResponse(res, 200, "ok");
+  } catch (e) {
+    return standardResponse(res, 500, e.message);
+  }
+})
+
 router.post("/scan-plate", async (req, res) => {
   const {plate} = req.body;
 
@@ -32,7 +51,6 @@ router.post("/scan-plate", async (req, res) => {
       return standardResponse(res, 404, "plate not registered");
     }
 
-
     const lastSession = await query(
       `SELECT * FROM sessions WHERE wxid = $1 ORDER BY started_at DESC LIMIT 1`,
       [wxid]
@@ -51,7 +69,7 @@ router.post("/scan-plate", async (req, res) => {
     return standardResponse(res, 200, "ok");
 
   } catch (e) {
-    return standardResponse(res, 500, e.message || "publish failed", {});
+    return standardResponse(res, 500, e.message || "publish failed");
   }
 });
 

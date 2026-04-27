@@ -105,8 +105,6 @@ class BotManager {
 
       // create a new session for the new visitor
       await this.messageService.createSession(fromUser);
-      const replyContent = "您好，我是园区访客登记助手。请直接发送：车牌号、拜访公司、来访事由（可发语音）。";
-      await this.messageService.sendReply(bot, fromUser, replyContent);
       return;
     }
 
@@ -125,10 +123,13 @@ class BotManager {
     if (!content) return;
 
     // Step 2: generate AI reply
-    // const reply = await this.messageService.getAIReply(bot.app_key, fromUser, content, sessionId);
+    const session = await this.messageService.getSession(fromUser);
+    console.log(`current session: ${session}`)
+    const reply = await this.messageService.getAIReply(fromUser, content, session.id);
 
     // Step 3: send back reply
-    // await this.messageService.sendReply(bot, fromUser, reply, Data, sessionId);
+    await this.messageService.sendVoiceReply(bot, fromUser, reply);
+    await this.messageService.sendReply(bot, fromUser, reply);
   }
 
   /**
@@ -159,6 +160,11 @@ class BotManager {
     }
 
     await this.messageService.sendReply(bot, wxid, content);
+  }
+
+  async handleGenerateTts(payload) {
+    const {signedUrl, duration} = await this.messageService.generateTts(payload.content);
+    console.log(signedUrl, duration);
   }
 }
 

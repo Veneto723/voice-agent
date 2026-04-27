@@ -4,13 +4,13 @@ import { v4 as uuidv4 } from "uuid";
 import { encode, isWav } from "silk-wasm";
 import { callWechatBotApi } from "../utils/utils.js";
 import { uploadSilkBuffer, signUrl } from "../utils/ossHandler.js";
+import axios from "axios";
 
 export class BotMessageService {
     constructor(asrClient, ttsClient) {
         this.asrClient = asrClient;
         this.ttsClient = ttsClient;
     }
-
 
     /**
      * Handle incoming text message
@@ -28,8 +28,29 @@ export class BotMessageService {
         // ignore group message
         if (fromUser.endsWith("@chatroom")) return null;
 
-        console.log(`[BOT ${bot.wxid}] Incoming text message from contact ${fromUser}:`, content);
+        if (content === "@统计") {
+            try {
+                const { rows } = await query(
+                    `SELECT COUNT(*)::int AS cnt
+                     FROM sessions
+                     WHERE status = 'completed'
+                       AND ended_at IS NOT NULL
+                       AND ended_at >= (
+                         date_trunc('week', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::timestamp)
+                         AT TIME ZONE 'Asia/Shanghai'
+                       )`,
+                    []
+                );
+                const n = rows?.[0]?.cnt ?? 0;
+                await this.sendReply(bot, fromUser, `本周一共${n}次车辆来访` );
+            } catch (e) {
+                console.error(`[BOT ${bot.wxid}] @统计 error:`, e);
+                await this.sendReply(bot, fromUser, "统计暂不可用，请稍后再试");
+            }
+            return null;
+        }
 
+        console.log(`[BOT ${bot.wxid}] Incoming text message from contact ${fromUser}:`, content);
         return content;
     }
 
@@ -109,33 +130,70 @@ export class BotMessageService {
         bot.visitors.add(fromUser);
 
         console.log(`[BOT ${bot.wxid}] New friend accepted: ${fromUser}`);
-
-        try {
-            const resp = await callWechatBotApi(process.env.WECHAT_BOT_SEARCH_FRIEND_URL, bot.token, { contactsInfo: fromUser });
-            const data = resp?.data;
-            if (data?.ret === 0) {
-                const v3 = data?.data?.v3;
-                const v4 = data?.data?.v4;
-
-                await callWechatBotApi(process.env.WECHAT_BOT_ADD_FRIEND_URL, bot.token, { v3, v4, scene: 3, content: '', option: 2 });
-            }
-        } catch (err) {
-            console.error(`[BOT ${bot.wxid}] Search friend error:`, err);
-        }
     }
 
+    async getAIReply(visitorId, userMessage, sessionId) {
+        try {
+          const payload = {
+            session_id: sessionId,
+            bot_app_key: process.env.AGENT_APP_KEY,
+            visitor_biz_id: visitorId,
+            content: userMessage,
+            stream: "disable",
+            search_network: "disable",
+            workflow_status: "disable",
+            tcadp_user_id: ""
+          };
+
+          const response = await axios.post(
+            "https://wss.lke.cloud.tencent.com/v1/qbot/chat/sse",
+            payload,
+            {
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+          const lines = response.data.split(/\r?\n/);
+          let finalReply = "";
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line.startsWith("data:")) continue;
+
+            const rawJson = line.replace(/^data:/, "").trim();
+            try {
+              const json = JSON.parse(rawJson);
+
+              if (json.type === "reply") {
+                const payload = json.payload || {};
+                if (!payload.is_from_self && payload.is_final) {
+                  finalReply = payload.content;
+                  break; // stop after the final reply
+                }
+              }
+            } catch (err) {
+              console.error("[AI] Failed to parse JSON line:", err.message);
+            }
+          }
+
+          return finalReply;
+        } catch (err) {
+          console.error("Failed to get AI reply:", err.message);
+          return "AI生成回复失败";
+        }
+      }
+
     /**
-     * Tencent TTS (base64 WAV) → SILK → Aliyun OSS; returns a time-limited signed URL and duration.
+     * TTS (base64 WAV) → SILK → OSS; returns a time-limited signed URL and duration.
      * @param {string} text
      * @returns {Promise<{ signedUrl: string, durationMs: number, objectKey: string }|null>}
      */
-    async generateTTS(text) {
+    async generateTts(text) {
         const trimmed = typeof text === "string" ? text.trim() : "";
         if (!trimmed || !this.ttsClient) return null;
 
         const sessionId = uuidv4();
-        const voiceType = process.env.TENCENT_TTS_VOICE_TYPE;
-        const objectKey = `voice/tts/${sessionId}.silk`;
+        const voiceType = Number(process.env.TENCENT_TTS_VOICE_TYPE);
+        const objectKey = `voice/${sessionId}.silk`;
 
         const params = {
             Text: trimmed,
@@ -173,8 +231,16 @@ export class BotMessageService {
      */
     async sendReply(bot, toWxid, content) {
         if (!bot || !toWxid || !content.trim()) return;
+        console.log('Send Reply with', content.trim())
+        await callWechatBotApi(process.env.WECHAT_BOT_SEND_TEXT_URL, bot.token, { toWxid, content: content.trim() });
+    }
 
-        await callWechatBotApi(process.env.WECHAT_BOT_SEND_TEXT_URL, bot.token, { toWxid, content });
+    async sendVoiceReply(bot, toWxid, content) {
+        if (!bot || !toWxid || !content.trim()) return;
+
+        const {signedUrl, duration} = await this.generateTts(content.trim())
+
+        await callWechatBotApi(process.env.WECHAT_BOT_SEND_VOICE_URL, bot.token, { toWxid, voiceUrl: signedUrl, voiceDuration: duration });
     }
 
     /**
