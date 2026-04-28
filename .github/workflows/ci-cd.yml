@@ -37,7 +37,6 @@ jobs:
             exit 0
           fi
 
-          # echo "Triggering Render deploy..."
-          # curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
-          # echo "Deploy triggered successfully."
-
+           echo "Triggering Render deploy..."
+           curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
+           echo "Deploy triggered successfully."

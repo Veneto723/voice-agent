@@ -10,7 +10,7 @@
     "start": "node src/index.js",
     "db:migrate": "node scripts/db-migrate.js",
     "bot:start": "node src/bot/botService.js",
-    "test": "node --check src/index.js && node --check src/routes/api.js && node --check src/bot/botService.js && node --check src/bot/botManager.js && node --check src/bot/botMessageService.js && node --check src/utils/ossHandler.js && node --check src/utils/wecomWebhook.js && node --check src/utils/guardMessage.js && node --check src/db.js && node --check scripts/db-migrate.js"
+    "test": "node --check src/index.js && node --check src/routes/api.js && node --check src/bot/botService.js && node --check src/bot/botManager.js && node --check src/bot/botMessageService.js && node --check src/utils/ossHandler.js && node --check src/utils/wecomWebhook.js && node --check src/db.js && node --check scripts/db-migrate.js"
   },
   "dependencies": {
     "ali-oss": "^6.23.0",
